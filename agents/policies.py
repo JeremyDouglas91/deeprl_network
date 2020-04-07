@@ -2,7 +2,6 @@ import numpy as np
 import tensorflow as tf
 from agents.utils import *
 
-
 class Policy:
     def __init__(self, n_a, n_s, n_step, policy_name, agent_name, identical):
         self.name = policy_name
@@ -80,20 +79,43 @@ class Policy:
 class LstmPolicy(Policy):
     def __init__(self, n_s, n_a, n_n, n_step, n_fc=64, n_lstm=64, name=None,
                  na_dim_ls=None, identical=True):
+        """
+        class: an LSTM policy for a single agent
+        ----------
+        parameters
+        ----------
+        n_s, int or tupl:   number of elements in state vector (cacc & ATCS) / shape of state tensor (cleanup & harvest)
+        n_a, int:           number of discrete actions allowed
+        n_n, int:           number of neighbors adjancet to the agent
+        n_step, int:        batch size for training
+        n_fc, int:          number of units in FC layer
+        n_lstm, int:        number of hidden units in LSTM cell             
+
+        """
         super().__init__(n_a, n_s, n_step, 'lstm', name, identical)
         if not self.identical:
             self.na_dim_ls = na_dim_ls
         self.n_lstm = n_lstm
         self.n_fc = n_fc
         self.n_n = n_n
-        self.ob_fw = tf.placeholder(tf.float32, [1, n_s]) # forward 1-step
+
+        # NEW ------------------------------------------------------------------
+        if type(n_s) is tuple: # state is an rgb image
+            self.ob_fw = tf.placeholder(tf.float32, [1, n_s[0], n_s[1], n_s[2]]) # forward 1-step (1, 15, 15, 3)
+            self.ob_bw = tf.placeholder(tf.float32, [n_step, n_s[0], n_s[1], n_s[2]]) # backward n-step (n_step, 15, 15, 3)
+        else:
+            # ------------------------------------------------------------------
+            self.ob_fw = tf.placeholder(tf.float32, [1, n_s]) # forward 1-step
+            self.ob_bw = tf.placeholder(tf.float32, [n_step, n_s]) # backward n-step
+
+        if self.n_n: 
+            self.naction_fw = tf.placeholder(tf.int32, [1, n_n]) # neighbor actions forward pass
+            self.naction_bw = tf.placeholder(tf.int32, [n_step, n_n]) # neighbor actions packward pass
+        
         self.done_fw = tf.placeholder(tf.float32, [1])
-        self.ob_bw = tf.placeholder(tf.float32, [n_step, n_s]) # backward n-step
-        if self.n_n:
-            self.naction_fw = tf.placeholder(tf.int32, [1, n_n])
-            self.naction_bw = tf.placeholder(tf.int32, [n_step, n_n])
         self.done_bw = tf.placeholder(tf.float32, [n_step])
-        self.states = tf.placeholder(tf.float32, [n_lstm * 2])
+        self.states = tf.placeholder(tf.float32, [n_lstm * 2]) # hidden states in lstm
+
         with tf.variable_scope(self.name):
             self.pi_fw, self.v_fw, self.new_states = self._build_net('forward')
         with tf.variable_scope(self.name, reuse=True):
@@ -142,7 +164,14 @@ class LstmPolicy(Policy):
             ob = self.ob_bw
             done = self.done_bw
             naction = self.naction_bw if self.n_n else None
-        h = fc(ob, 'fc', self.n_fc)
+
+        # NEW ---------------------------------------------------------
+        if(len(ob.get_shape().as_list())==4):
+            h = conv_to_linear(x=ob, scope='conv', n_out=self.n_fc)
+        else:
+            h = fc(ob, 'fc', self.n_fc)
+        # NEW ---------------------------------------------------------
+
         h, new_states = lstm(h, done, self.states, 'lstm')
         pi = self._build_actor_head(h)
         v = self._build_critic_head(h, naction)

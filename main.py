@@ -2,6 +2,10 @@
 Main function for training and evaluating MARL algorithms in NMARL envs
 @author: Tianshu Chu
 """
+# Tempotarily append to the python path to import ssd envs - will fix later
+import sys
+sys.path.append('..')
+##########################################################################
 
 import argparse
 import configparser
@@ -9,8 +13,9 @@ import logging
 import tensorflow as tf
 import threading
 from envs.cacc_env import CACCEnv
-from envs.large_grid_env import LargeGridEnv
-from envs.real_net_env import RealNetEnv
+from envs.ssd_env import SSDEnv
+#from envs.large_grid_env import LargeGridEnv
+#from envs.real_net_env import RealNetEnv
 from agents.models import IA2C, IA2C_FP, IA2C_CU, MA2C_NC, MA2C_IC3, MA2C_DIAL
 from utils import (Counter, Trainer, Tester, Evaluator,
                    check_dir, copy_file, find_file,
@@ -47,11 +52,26 @@ def init_env(config, port=0):
             return LargeGridEnv(config, port=port)
         else:
             return RealNetEnv(config, port=port)
-    else:
+    elif scenario.startswith('cacc'):
         return CACCEnv(config)
+    else:
+        # NEW: SSD environments
+        return SSDEnv(config)
 
 
 def init_agent(env, config, total_step, seed):
+    """
+    paraneters
+    ----------
+    n_s_ls: list, one entry per agent; length of state vector in CACC/ATCS OR shape of state tensor for cleanup/harvest
+    n_a_ls: list, one entry per agent; number of discrete actions available
+    neighbor_mask: adjacency matrix (n_agent, n_agent); 1 if agents are adjacent, 0 otherwise.
+    distance_mask: matrix (n_agent, n_agent); distance between each pair of agents in the graph
+    coop_gamma: float/int; temporal discount factor
+    total_step: integer; total number of training steps
+    config: 'model config' parameters from file
+    seed: seed for reproducability (initialisations etc)
+    """
     if env.agent == 'ia2c':
         return IA2C(env.n_s_ls, env.n_a_ls, env.neighbor_mask, env.distance_mask, env.coop_gamma,
                     total_step, config, seed=seed)
@@ -77,12 +97,12 @@ def init_agent(env, config, total_step, seed):
 
 def train(args):
     base_dir = args.base_dir
-    dirs = init_dir(base_dir)
-    init_log(dirs['log'])
+    dirs = init_dir(base_dir) # creates data, log, model folders if they do not exist
+    init_log(dirs['log']) # intialises logging, creates log file etc.
     config_dir = args.config_dir
-    copy_file(config_dir, dirs['data'])
+    copy_file(config_dir, dirs['data']) # copy the config file to the data/ directory
     config = configparser.ConfigParser()
-    config.read(config_dir)
+    config.read(config_dir) # parse the .yml config file
 
     # init env
     env = init_env(config['ENV_CONFIG'])
@@ -96,12 +116,14 @@ def train(args):
 
     # init centralized or multi agent
     seed = config.getint('ENV_CONFIG', 'seed')
-    model = init_agent(env, config['MODEL_CONFIG'], total_step, seed)
+    model = init_agent(env, config['MODEL_CONFIG'], total_step, seed) # returns agent class 
 
+    print("before init_train()")
     # disable multi-threading for safe SUMO implementation
-    summary_writer = tf.summary.FileWriter(dirs['log'])
+    summary_writer = tf.summary.FileWriter(dirs['log'], graph=model.sess.graph)
     trainer = Trainer(env, model, global_counter, summary_writer, output_path=dirs['data'])
     trainer.run()
+    print("after init_train()")
 
     # save model
     final_step = global_counter.cur_step

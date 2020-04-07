@@ -99,19 +99,19 @@ class Counter:
 
 class Trainer():
     def __init__(self, env, model, global_counter, summary_writer, output_path=None):
-        self.cur_step = 0
-        self.global_counter = global_counter
-        self.env = env
-        self.agent = self.env.agent
-        self.model = model
-        self.sess = self.model.sess
-        self.n_step = self.model.n_step
-        self.summary_writer = summary_writer
-        assert self.env.T % self.n_step == 0
+        self.cur_step = 0 # episode step counter
+        self.global_counter = global_counter 
+        self.env = env 
+        self.agent = self.env.agent # type of agent, e.g. ia2c
+        self.model = model # TF graph
+        self.sess = self.model.sess # session inside which model is defined 
+        self.n_step = self.model.n_step # batch size 
+        self.summary_writer = summary_writer # from tf.summary.FileWriter(dirs['log'], graph=model.sess.graph) in main.py
+        assert self.env.T % self.n_step == 0 # batch size divides total training steps
         self.data = []
-        self.output_path = output_path
+        self.output_path = output_path # output_path=dirs['data'] in main.py
         self.env.train_mode = True
-        self._init_summary()
+        self._init_summary() # placeholder list for train and test rewards
 
     def _init_summary(self):
         self.train_reward = tf.placeholder(tf.float32, [])
@@ -127,6 +127,13 @@ class Trainer():
         self.summary_writer.add_summary(summ, global_step=global_step)
 
     def _get_policy(self, ob, done, mode='train'):
+        """
+        return:
+        -------
+        policy: list, arrays representing multinomial distributions of 
+                actions over the given state (one per agent)
+        action: numpy array, action selections, one for each agent
+        """
         if self.agent.startswith('ma2c'):
             self.ps = self.env.get_fingerprint()
             policy = self.model.forward(ob, done, self.ps)
@@ -141,6 +148,12 @@ class Trainer():
         return policy, np.array(action)
 
     def _get_value(self, ob, done, action):
+        """
+        returns
+        -------
+        value: list, state values for each agent depending on the local state
+               as well as the actions of the agents neighbours 
+        """
         if self.agent.startswith('ma2c'):
             value = self.model.forward(ob, done, self.ps, np.array(action), 'v')
         else:
@@ -161,24 +174,27 @@ class Trainer():
         self.summary_writer.flush()
 
     def explore(self, prev_ob, prev_done):
+        """
+        Sample a single trajectory from the environment.
+        """
         ob = prev_ob
         done = prev_done
-        for _ in range(self.n_step):
+        for _ in range(self.n_step): # batch size == n_step
             # pre-decision
-            policy, action = self._get_policy(ob, done)
+            policy, action = self._get_policy(ob, done) # lists of policy distributions and action selections
             # post-decision
-            value = self._get_value(ob, done, action)
+            value = self._get_value(ob, done, action) # list of state values
             # transition
-            self.env.update_fingerprint(policy)
-            next_ob, reward, done, global_reward = self.env.step(action)
+            self.env.update_fingerprint(policy) # per agent
+            next_ob, reward, done, global_reward = self.env.step(action) # reward + global reward are scalars... 
             self.episode_rewards.append(global_reward)
             global_step = self.global_counter.next()
             self.cur_step += 1
             # collect experience
             if self.agent.startswith('ma2c'):
-                self.model.add_transition(ob, self.ps, action, reward, value, done)
+                self.model.add_transition(ob, self.ps, action, reward, value, done) # ps --> finger prints
             else:
-                self.model.add_transition(ob, self.naction, action, reward, value, done)
+                self.model.add_transition(ob, self.naction, action, reward, value, done) # naction --> neighbour actions 
             # logging
             if self.global_counter.should_log():
                 logging.info('''Training: global step %d, episode step %d,
@@ -190,7 +206,7 @@ class Trainer():
                 break
             ob = next_ob
         if done:
-            R = np.zeros(self.model.n_agent)
+            R = np.zeros(self.model.n_agent) # R--> state-value per agent, 0 if the task is over.
         else:
             _, action = self._get_policy(ob, done)
             R = self._get_value(ob, done, action)
@@ -207,7 +223,7 @@ class Trainer():
                 action = self.model.forward(ob)
             else:
                 # in on-policy learning, test policy has to be stochastic
-                if self.env.name.startswith('atsc'):
+                if (self.env.name.startswith('atsc') or self.env.name.startswith('ssd')):
                     policy, action = self._get_policy(ob, done)
                 else:
                     # for mission-critic tasks like CACC, we need deterministic policy
@@ -222,13 +238,12 @@ class Trainer():
         std_reward = np.std(np.array(rewards))
         return mean_reward, std_reward
 
-    def run(self):
+    def run(self): 
         while not self.global_counter.should_stop():
-            # np.random.seed(self.env.seed)
             ob = self.env.reset()
             # note this done is pre-decision to reset LSTM states!
             done = True
-            self.model.reset()
+            self.model.reset() # resets lstm states
             self.cur_step = 0
             self.episode_rewards = []
             while True:
@@ -245,7 +260,7 @@ class Trainer():
             std_reward = np.std(rewards)
             # NOTE: for CACC we have to run another testing episode after each
             # training episode since the reward and policy settings are different!
-            if not self.env.name.startswith('atsc'):
+            if not (self.env.name.startswith('atsc') or self.env.name.startswith('ssd')):
                 self.env.train_mode = False
                 mean_reward, std_reward = self.perform(-1)
                 self.env.train_mode = True

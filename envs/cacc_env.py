@@ -2,6 +2,7 @@ import configparser
 import logging
 import numpy as np
 import pandas as pd
+import sys
 # import matplotlib.pyplot as plt
 # import seaborn as sns
 # sns.set()
@@ -137,32 +138,6 @@ class CACCEnv:
         traffic_data.to_csv(self.output_path + ('%s_%s_traffic.csv' % (self.name, self.agent)))
         # self.plot_data(df, path)
 
-    # Moved to python notebook
-    # def plot_data(self, df, path):
-    #     fig = plt.figure(figsize=(10, 8))
-    #     plt.subplot(2, 1, 1)
-    #     for i in [0, 2, 5, 7]:
-    #         plt.plot(df.time.values, df['headway_%d' % (i+1)].values, linewidth=3,
-    #                  label='veh #%d' % (i+1))
-    #     plt.legend(fontsize=20, loc='best')
-    #     plt.grid(True, which='both')
-    #     plt.yticks(fontsize=20)
-    #     plt.xticks(fontsize=20)
-    #     plt.ylabel('Headway [m]', fontsize=20)
-    #     plt.subplot(2, 1, 2)
-    #     for i in [0, 2, 5, 7]:
-    #         plt.plot(df.time.values, df['velocity_%d' % (i+1)].values, linewidth=3,
-    #                  label='veh #%d' % (i+1))
-    #     # plt.legend(fontsize=15, loc='best')
-    #     plt.grid(True, which='both')
-    #     plt.yticks(fontsize=20)
-    #     plt.xticks(fontsize=20)
-    #     plt.ylabel('Velocity [m/s]', fontsize=20)
-    #     plt.xlabel('Time [s]', fontsize=20)
-    #     fig.tight_layout()
-    #     plt.savefig(path + 'env_plot.pdf')
-    #     plt.close()
-
     def reset(self, gui=False, test_ind=-1):
         self.cur_episode += 1
         # np.random.seed(self.seed)
@@ -239,6 +214,15 @@ class CACCEnv:
             self._log_control_data(action, global_reward)
         if done and (self.is_record):
             self._log_traffic_data()
+
+        # NEW ------------------------------------------------------------------
+        print("STATE:", type(self._get_state()), self._get_state(), sep='\n')
+        print("REWARD:", type(reward), reward, sep='\n')
+        print("DONE:", type(done), done, sep='\n')
+        print("GLOBAL REWARD: ", type(global_reward), global_reward, sep='\n')
+        sys.exit(0)
+        #------------------------------------------------------------------------
+
         return self._get_state(), reward, done, global_reward
 
     def get_fingerprint(self):
@@ -398,3 +382,4 @@ if __name__ == '__main__':
         if done:
             break
     env.output_data()
+

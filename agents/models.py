@@ -11,7 +11,6 @@ import logging
 import numpy as np
 import tensorflow as tf
 
-
 class IA2C:
     """
     The basic IA2C implementation with decentralized actor and centralized critic,
@@ -19,6 +18,18 @@ class IA2C:
     """
     def __init__(self, n_s_ls, n_a_ls, neighbor_mask, distance_mask, coop_gamma,
                  total_step, model_config, seed=0):
+        """
+        paraneters
+        ----------
+        n_s_ls: list, one entry per agent; length of state vector in CACC/ATCS OR shape of state tensor for cleanup/harvest
+        n_a_ls: list, one entry per agent; number of discrete actions available
+        neighbor_mask: adjacency matrix (n_agent, n_agent); 1 if agents are adjacent, 0 otherwise.
+        distance_mask: matrix (n_agent, n_agent); distance between each pair of agents in the graph
+        coop_gamma: float/int; temporal discount factor
+        total_step: integer; total number of training steps
+        config: 'model config' parameters from file
+        seed: seed for reproducability (initialisations etc)
+        """
         self.name = 'ia2c'
         self._init_algo(n_s_ls, n_a_ls, neighbor_mask, distance_mask, coop_gamma,
                         total_step, seed, model_config)
@@ -93,20 +104,20 @@ class IA2C:
             self.n_s = n_s_ls[0]
             self.n_a = n_a_ls[0]
         else:
-            self.n_s = max(self.n_s_ls)
-            self.n_a = max(self.n_a_ls)
+            self.n_s = max(self.n_s_ls) # dimmension of state tensor
+            self.n_a = max(self.n_a_ls) # number of discrete actions
         self.neighbor_mask = neighbor_mask
         self.n_agent = len(self.neighbor_mask)
-        self.reward_clip = model_config.getfloat('reward_clip')
-        self.reward_norm = model_config.getfloat('reward_norm')
+        self.reward_clip = model_config.getfloat('reward_clip') # not sure 
+        self.reward_norm = model_config.getfloat('reward_norm') # not sure
         self.n_step = model_config.getint('batch_size')
-        self.n_fc = model_config.getint('num_fc')
-        self.n_lstm = model_config.getint('num_lstm')
+        self.n_fc = model_config.getint('num_fc') # number of units in fully-connected layer 
+        self.n_lstm = model_config.getint('num_lstm') # number of hidden units in lstm
         # init tf
         tf.reset_default_graph()
         tf.set_random_seed(seed)
-        config = tf.ConfigProto(allow_soft_placement=True)
-        self.sess = tf.Session(config=config)
+        config = tf.ConfigProto(allow_soft_placement=True) # give ops to cpu if no gpus are available
+        self.sess = tf.Session(config=config) # tf session specific to this IA2C policy object
         self.policy = self._init_policy()
         self.saver = tf.train.Saver(max_to_keep=5)
         # init exp buffer and lr scheduler for training
@@ -119,7 +130,7 @@ class IA2C:
         policy = []
         for i in range(self.n_agent):
             n_n = np.sum(self.neighbor_mask[i])
-            if self.identical_agent:
+            if self.identical_agent: # clean up and harvest agents will be identical 
                 policy.append(LstmPolicy(self.n_s_ls[i], self.n_a_ls[i], n_n, self.n_step,
                                          n_fc=self.n_fc, n_lstm=self.n_lstm, name='%d' % i))
             else:
