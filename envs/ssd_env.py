@@ -4,13 +4,11 @@ import logging
 import gym, ray
 import numpy as np
 import pandas as pd
-import os
 
 from social_dilemmas.envs.cleanup import CleanupEnv
 from social_dilemmas.envs.harvest import HarvestEnv
 
 matplotlib.use('agg')
-gym.logger.set_level(40) # supress warnings
 DEFULT_MAX_STEPS = 1000
 
 class SSDEnv(gym.Env, ray.rllib.env.MultiAgentEnv):
@@ -20,6 +18,12 @@ class SSDEnv(gym.Env, ray.rllib.env.MultiAgentEnv):
         self.agent = config.get("agent")
         self.n_agent = config.getint("n_agent")
         self.agent_tags = ['agent-%s'%(i) for i in range(self.n_agent)]
+        self.coop_gamma = config.getfloat('coop_gamma') # Spatial discount factor
+        self.dt = config.getfloat('control_interval_sec') # control step (always 1 for cleanup and harvest)
+        self.T = int(config.getint('episode_length_sec') / self.dt) # max steps
+        self.cur_episode = 0 # episode counter 
+        self.is_record = False # record data for each step (usually only during evaluation)
+        self.train_mode = True
 
         if self.scenario.lower().endswith("harvest"):
             self.env = HarvestEnv(num_agents=self.n_agent)
@@ -28,29 +32,24 @@ class SSDEnv(gym.Env, ray.rllib.env.MultiAgentEnv):
         else:
             raise ValueError(f"{config['env']} is an invalid value for config[\"env\"].")
 
-        self.coop_gamma = config.getfloat('coop_gamma') # Spatial discount factor
-        self.dt = config.getfloat('control_interval_sec') # control step (always 1 for cleanup and harvest)
-        self.T = int(config.getint('episode_length_sec') / self.dt) # max steps
-        self.steps = 0 # episode step counter
-
         # Initialise graph structure etc.
         self._init_space()
 
         # Set seeds for reproducible experiments
-        self.init_test_seeds(config)
-        np.random.seed(self.seed)
+        self.seed = config.getint('seed')
+        test_seeds = [int(s) for s in config.get('test_seeds').split(',')]
+        self.init_test_seeds(test_seeds) # this function call is annoying, but the evaluation function uses it.
+    
+    def init_data(self, is_record, record_stats, output_path):
+        self.is_record = is_record
+        self.output_path = output_path
+        if self.is_record:
+            self.control_data = []
 
-        # create a csv file to store data
-        metrics = ['action','reward']
-        col_names = ['ep_step']+[agent+"_"+metric for agent in self.agent_tags for metric in metrics]
-        self.df_train_log = pd.DataFrame(data={}, columns=col_names)
-        self.train_log_path = os.path.join(os.getcwd(), 'output/data/train_data_log.csv')
-        self.init_data_log()
-        
     def _init_space(self):
         # action and observatrion space
         env_window_size = 2 * self.env.agents[list(self.env.agents.keys())[0]].view_len + 1
-        obs_shape =  (env_window_size, env_window_size, 3)
+        obs_shape =  (env_window_size, env_window_size, 3) # TF needs shape (height, width, channels)
         self.action_space = self.env.action_space
         self.observation_space = gym.spaces.Box(
             low=0.0, high=255.0,
@@ -61,8 +60,6 @@ class SSDEnv(gym.Env, ray.rllib.env.MultiAgentEnv):
         # actions (number per agent, list of number of actions for each agent, possible actions/map)
         self.n_a = self.action_space.n
         self.n_a_ls = [self.n_a]*self.n_agent
-        self.a_map = [i for i in range(self.n_a)] # probably unnecessary since actions are inetegers...
-        logging.info('action to h_go map:\n %r' % self.a_map)
 
         # neighbor & distance graphs
         # start with a fully connected graph, K_{n_agent}
@@ -77,79 +74,24 @@ class SSDEnv(gym.Env, ray.rllib.env.MultiAgentEnv):
         # initialise finger print (policy distribution over actions per agent)
         self.fp = np.ones((self.n_agent, self.n_a)) / self.n_a
 
-    def init_test_seeds(self, config):
-        self.seed = config.getint('seed')
-        self.test_seeds = [int(s) for s in config.get('test_seeds').split(',')]
-        self.test_num = len(self.test_seeds )
+    def init_test_seeds(self, test_seeds):
+        self.test_num = len(test_seeds)
+        self.test_seeds = test_seeds
 
-    def init_data_log(self):
-        self.df_train_log.to_csv(path_or_buf=self.train_log_path, header=True)
+    def collect_tripinfo(self):
+        # not applicable to ssd.
+        return
 
-    def update_data_log(self):
-        self.df_train_log.to_csv(path_or_buf=self.train_log_path, mode='a', header=False)
-        self.df_train_log.drop(self.df_train_log.index, inplace=True)
-
-    def reset(self):
-        self.steps = 0 # episode step counter
-        self.rewards = [0] # to keep track of global rewards
-        obs = self.env.reset() # dictionary
-        obs = list(obs.values())
-
-        return obs
-
-    def step(self, action):
-        """
-        return:
-        obs: list of numpy arrays
-        reward: float if coop_gamma < 0 else numpy array ?
-        done: boolean
-        global_reward: float
-        """
-        # increment episode step counter
-        self.steps += 1
-        
-        # step in environment
-        action_dict = dict(zip(self.agent_tags, action)) # format agents actions as dictionary for env
-        obs, reward, done, info = self.env.step(action_dict)
-
-        obs = list(obs.values())
-        done = self.steps >= self.T 
-        reward = list(reward.values())
-        global_reward = np.sum(reward)
-        self.rewards.append(global_reward)
-
-        # log data
-        data = [self.steps]
-        for a,r in zip(action,reward):
-            data.append(a)
-            data.append(r)
-        self.df_train_log = self.df_train_log.append(dict(zip(self.df_train_log.columns, data)), 
-                                                    ignore_index=True)
-        if done:
-            self.update_data_log()
-
-        # no spatial discounting 
-        if(self.coop_gamma<0):
-            reward = global_reward
-        else:
-            reward = np.array(reward) # discounting happens in buffer class later (def _add_st_R_Adv(self, R, dt):)
-
-        return obs, reward, done, global_reward
-
-    def get_rewards(self, agent_id):
-        return self.rewards[agent_id]
-
-    def get_next_obs(self, agent_id):
-        return self.observations[agent_id]
-
-    def get_observations(self):
-        return self.observations
+    def _log_control_data(self, action, global_reward):
+        action_r = ','.join(['%d' % a for a in action])
+        cur_control = {'episode': self.cur_episode,
+                       'step': self.t,
+                       'action': action_r,
+                       'reward': global_reward}
+        self.control_data.append(cur_control)
 
     def get_fingerprint(self):
         return self.fp
-
-    def update_fingerprint(self, fp):
-        self.fp = fp
 
     def get_neighbor_action(self, action):
         naction = []
@@ -157,6 +99,95 @@ class SSDEnv(gym.Env, ray.rllib.env.MultiAgentEnv):
             naction.append(action[self.neighbor_mask[i] == 1])
         return naction
 
+    def _get_state(self, obs_env):
+        state = []
+        for i in range(self.n_agent):
+            img_obs_norm = obs_env[i]/self.observation_space.high
+            if self.agent == 'ia2c_fp':
+                n_fps = []
+                # finger prints must be attached at the end of the state array
+                for j in np.where(self.neighbor_mask[i] == 1)[0]:
+                    n_fps.append(self.fp[j])
+                n_fps = np.concatenate(n_fps) # all finger prints from neighbours
+                cur_state = [img_obs_norm.astype(np.float32), n_fps.astype(np.float32)]
+            elif self.agent == 'ia2c':
+                cur_state = [img_obs_norm.astype(np.float32), np.array([]).astype(np.float32)]
+            else:
+                cur_state = img_obs_norm.astype(np.float32)
+            state.append(cur_state)
+        return state
+
+    def output_data(self):
+        if not self.is_record:
+            logging.error('Env: no record to output!')
+        control_data = pd.DataFrame(self.control_data)
+        control_data.to_csv(self.output_path + ('%s_%s_control.csv' % (self.name, self.agent)))
+
+    def reset(self, gui=False, test_ind=-1):
+        # set seed 
+        if (self.train_mode):
+            seed = self.seed
+        elif (test_ind < 0):
+            seed = self.seed-1
+        else:
+            seed = self.test_seeds[test_ind]
+        np.random.seed(seed)
+        self.seed += 1
+
+        self.cur_episode += 1 
+        self.t = 0 # step counter for each episode
+        self.rewards = [0] # to keep track of global rewards
+        obs = self.env.reset() # dictionary
+        obs = list(obs.values())
+
+        obs = self._get_state(obs) # new 
+
+        return obs
+
+    def step(self, action):
+        """
+        parameters
+        ----------
+        action: list (int), one action for each of self.n_agent
+
+        return
+        ------
+        obs: list of numpy arrays
+        reward: float if coop_gamma < 0 else numpy array 
+        done: boolean
+        global_reward: float
+        """
+        # increment episode step counter
+        self.t += 1
+        
+        # format agents actions as dictionary (required for ssd env)
+        action_dict = dict(zip(self.agent_tags, action)) 
+
+        # step in environment
+        obs, reward, done, info = self.env.step(action_dict)
+
+        # items to return
+        obs = list(obs.values())
+        obs = self._get_state(obs) # new 
+        done = self.t >= self.T 
+        reward = list(reward.values())
+        global_reward = np.sum(reward)
+
+        self.rewards.append(global_reward)
+        if(self.coop_gamma<0): # no spatial discounting 
+            reward = global_reward
+        else: # discounting happens in buffer class later (def _add_st_R_Adv(self, R, dt):)
+            reward = np.array(reward) 
+
+        # record data from step
+        if self.is_record:
+            self._log_control_data(action, global_reward)
+
+        return obs, reward, done, global_reward
+
     def terminate(self):
         return
+
+    def update_fingerprint(self, fp):
+        self.fp = fp
 

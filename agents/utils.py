@@ -63,22 +63,23 @@ def conv(x, scope, n_out, f_size, stride=1, pad='VALID', f_size_w=None, act=tf.n
 
 
 # NEW ------------------------------------------------------------------
-def conv_to_linear(x, scope, n_out, f_height=3, f_width=3, n_c_out=12, stride=1, pad='SAME', act=tf.nn.relu, 
+def conv_to_linear(x, scope, n_out, f_height=3, f_width=3, n_c_out=6, stride=1, pad='SAME', act=tf.nn.relu, 
                     init_scale=DEFAULT_SCALE, init_mode=None, init_method=DEFAULT_METHOD):
     with tf.variable_scope(scope):
         n_c_in = x.shape[3].value # RGB, should be 3
+        img_dim = x.shape[1].value # img dimesnions are 15x15 for cleanup and harvest
 
         b1 = tf.get_variable("b1", [n_c_out], initializer=tf.constant_initializer(0.0)) 
         w1 = tf.get_variable("w1", [f_height, f_width, n_c_in, n_c_out], 
                             initializer=init_method(init_scale, init_mode))
 
         b2 = tf.get_variable("b2", [n_out], initializer=tf.constant_initializer(0.0)) 
-        w2 = tf.get_variable("w2", [15*15*n_c_out, n_out], 
+        w2 = tf.get_variable("w2", [img_dim*img_dim*n_c_out, n_out], 
                             initializer=init_method(init_scale, init_mode))
 
         z = tf.nn.conv2d(x, w1, strides=[1, stride, stride, 1], padding=pad) + b1
         z = act(z)
-        z = tf.reshape(z, [-1, 15*15*n_c_out])
+        z = tf.reshape(z, [-1, img_dim*img_dim*n_c_out])
         z = tf.matmul(z, w2) + b2
         return act(z)
 #-----------------------------------------------------------------------
@@ -772,7 +773,7 @@ class OnPolicyBuffer(TransBuffer):
             self._add_R_Adv(R)
         else:
             self._add_s_R_Adv(R)
-        obs = np.array(self.obs, dtype=np.float32)
+        obs = np.array(self.obs)
         nas = np.array(self.adds, dtype=np.int32)
         acts = np.array(self.acts, dtype=np.int32)
         Rs = np.array(self.Rs, dtype=np.float32)

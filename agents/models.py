@@ -130,14 +130,18 @@ class IA2C:
         policy = []
         for i in range(self.n_agent):
             n_n = np.sum(self.neighbor_mask[i])
+            # NEW ------------------------------
+            n_s = (self.n_s_ls[i],0) # (dim of img obs, dim of full state once output of conv and other state info have been concatenated)
+            # NEW ------------------------------
+            
             if self.identical_agent: # clean up and harvest agents will be identical 
-                policy.append(LstmPolicy(self.n_s_ls[i], self.n_a_ls[i], n_n, self.n_step,
+                policy.append(LstmPolicy(n_s, self.n_a_ls[i], n_n, self.n_step,
                                          n_fc=self.n_fc, n_lstm=self.n_lstm, name='%d' % i))
             else:
                 na_dim_ls = []
                 for j in np.where(self.neighbor_mask[i] == 1)[0]:
                     na_dim_ls.append(self.n_a_ls[j])
-                policy.append(LstmPolicy(self.n_s_ls[i], self.n_a_ls[i], n_n, self.n_step,
+                policy.append(LstmPolicy(n_s, self.n_a_ls[i], n_n, self.n_step,
                                          n_fc=self.n_fc, n_lstm=self.n_lstm, name='%d' % i,
                                          na_dim_ls=na_dim_ls, identical=False))
         return policy
@@ -185,14 +189,18 @@ class IA2C_FP(IA2C):
             n_n = np.sum(self.neighbor_mask[i])
             # neighborhood policies are included in local state
             if self.identical_agent:
-                n_s1 = self.n_s_ls[i] + self.n_a*n_n
+                # NEW -------------------------------
+                n_s1 = (self.n_s_ls[i], self.n_a*n_n)
+                # NEW -------------------------------
                 policy.append(FPPolicy(n_s1, self.n_a, n_n, self.n_step, n_fc=self.n_fc,
                                        n_lstm=self.n_lstm, name='%d' % i))
             else:
                 na_dim_ls = []
                 for j in np.where(self.neighbor_mask[i] == 1)[0]:
                     na_dim_ls.append(self.n_a_ls[j])
-                n_s1 = self.n_s_ls[i] + sum(na_dim_ls)
+                # NEW ----------------------------------
+                n_s1 = (self.n_s_ls[i], sum(na_dim_ls))
+                # NEW ----------------------------------
                 policy.append(FPPolicy(n_s1, self.n_a_ls[i], n_n, self.n_step, n_fc=self.n_fc,
                                        n_lstm=self.n_lstm, name='%d' % i,
                                        na_dim_ls=na_dim_ls, identical=False))

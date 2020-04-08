@@ -99,14 +99,14 @@ class LstmPolicy(Policy):
         self.n_fc = n_fc
         self.n_n = n_n
 
-        # NEW ------------------------------------------------------------------
-        if type(n_s) is tuple: # state is an rgb image
-            self.ob_fw = tf.placeholder(tf.float32, [1, n_s[0], n_s[1], n_s[2]]) # forward 1-step (1, 15, 15, 3)
-            self.ob_bw = tf.placeholder(tf.float32, [n_step, n_s[0], n_s[1], n_s[2]]) # backward n-step (n_step, 15, 15, 3)
-        else:
-            # ------------------------------------------------------------------
-            self.ob_fw = tf.placeholder(tf.float32, [1, n_s]) # forward 1-step
-            self.ob_bw = tf.placeholder(tf.float32, [n_step, n_s]) # backward n-step
+        # NEW ------------------------------------------------
+        self.img_dims, self.vec_dims = n_s
+        height, width, channel = self.img_dims[0], self.img_dims[1], self.img_dims[2]
+        self.ob_im_fw = tf.placeholder(tf.float32, [1, height, width, channel]) # img portion of obs (1, 15, 15, 3)
+        self.ob_im_bw = tf.placeholder(tf.float32, [n_step, height, width, channel]) 
+        self.ob_vec_fw = tf.placeholder(tf.float32, [1, self.vec_dims]) # other state info to be passed into model other than img (e.g. finger prints)
+        self.ob_vec_bw = tf.placeholder(tf.float32, [n_step, self.vec_dims])  
+        # NEW -------------------------------------------------
 
         if self.n_n: 
             self.naction_fw = tf.placeholder(tf.int32, [1, n_n]) # neighbor actions forward pass
@@ -124,13 +124,23 @@ class LstmPolicy(Policy):
 
     def backward(self, sess, obs, nactions, acts, dones, Rs, Advs, cur_lr,
                  summary_writer=None, global_step=None):
-        ins = {self.ob_bw: obs,
+        # NEW ---------------------------------
+        ob_im, ob_vec = obs[:,0], obs[:,1]
+        ob_im = np.stack(ob_im, axis=0).astype(np.float32)
+        ob_vec = np.stack(ob_vec, axis=0).astype(np.float32)
+        
+        if ob_vec.shape[1] == 0: # only the case in ia2c
+            ob_vec = np.empty(shape=(self.n_step, self.vec_dims), dtype=np.float32)
+        
+        ins = {self.ob_im_bw: ob_im,
+               self.ob_vec_bw: ob_vec,
                self.done_bw: dones,
                self.states: self.states_bw,
                self.A: acts,
                self.ADV: Advs,
                self.R: Rs,
                self.lr: cur_lr}
+        # NEW ---------------------------------
         if self.n_n:
             ins[self.naction_bw] = nactions
         summary, _ = sess.run([self.summary, self._train], ins)
@@ -140,9 +150,13 @@ class LstmPolicy(Policy):
 
     def forward(self, sess, ob, done, naction=None, out_type='p'):
         # update state only when p is called
-        ins = {self.ob_fw: np.array([ob]),
+        # NEW -----------------------------------------
+        ob_im, ob_vec = ob[0], ob[1]
+        ins = {self.ob_im_fw: np.array([ob_im]),
+               self.ob_vec_fw : np.array([ob_vec]),
                self.done_fw: np.array([done]),
                self.states: self.states_fw}
+        # NEW -----------------------------------------
         if out_type.startswith('p'):
             outs = [self.pi_fw, self.new_states]
         else:
@@ -157,19 +171,19 @@ class LstmPolicy(Policy):
 
     def _build_net(self, in_type):
         if in_type == 'forward':
-            ob = self.ob_fw
+            ob_im = self.ob_im_fw
+            ob_vec = self.ob_vec_fw # can ignore in ia2c
             done = self.done_fw
             naction = self.naction_fw if self.n_n else None
         else:
-            ob = self.ob_bw
+            ob_im = self.ob_im_bw
+            ob_vec = self.ob_vec_bw # can ignore in ia2c
             done = self.done_bw
             naction = self.naction_bw if self.n_n else None
 
         # NEW ---------------------------------------------------------
-        if(len(ob.get_shape().as_list())==4):
-            h = conv_to_linear(x=ob, scope='conv', n_out=self.n_fc)
-        else:
-            h = fc(ob, 'fc', self.n_fc)
+        h = conv_to_linear(x=ob_im, scope='conv', n_out=self.n_fc) # local state
+        h = fc(h, 'fc', self.n_fc)
         # NEW ---------------------------------------------------------
 
         h, new_states = lstm(h, done, self.states, 'lstm')
@@ -186,28 +200,35 @@ class LstmPolicy(Policy):
 class FPPolicy(LstmPolicy):
     def __init__(self, n_s, n_a, n_n, n_step, n_fc=64, n_lstm=64, name=None,
                  na_dim_ls=None, identical=True):
+        """
+        n_s = dim(obs) + n_neighbours * n_actions 
+        """
         super().__init__(n_s, n_a, n_n, n_step, n_fc, n_lstm, name,
                          na_dim_ls, identical)
 
     def _build_net(self, in_type):
         if in_type == 'forward':
-            ob = self.ob_fw
+            ob_im = self.ob_im_fw
+            ob_vec = self.ob_vec_fw
             done = self.done_fw
             naction = self.naction_fw if self.n_n else None
         else:
-            ob = self.ob_bw
+            ob_im = self.ob_im_bw
+            ob_vec = self.ob_vec_bw
             done = self.done_bw
             naction = self.naction_bw if self.n_n else None
-        if self.identical:
-            n_x = int(self.n_s - self.n_n * self.n_a)
-        else:
-            n_x = int(self.n_s - sum(self.na_dim_ls))
-        hx = fc(ob[:,:n_x], 'fcs', self.n_fc)
+        
+        # pass img obs through conv_2_linear and through an fc layer 
+        h_im = conv_to_linear(x=ob_im, scope='conv', n_out=self.n_fc) 
+        h_im = fc(h_im, 'fc', self.n_fc) 
+        
+        # separately, pass finger print vector through fc layer (if agent has neighbours)
         if self.n_n:
-            hp = fc(ob[:,n_x:], 'fcp', self.n_fc)
-            h = tf.concat([hx, hp], axis=1)
+            h_fp = fc(ob_vec, 'fcp', self.n_fc)
+            h = tf.concat([h_im, h_fp], axis=1)
         else:
-            h = hx
+            h = h_im
+        
         h, new_states = lstm(h, done, self.states, 'lstm')
         pi = self._build_actor_head(h)
         v = self._build_critic_head(h, naction)

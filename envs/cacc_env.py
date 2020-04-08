@@ -2,7 +2,7 @@ import configparser
 import logging
 import numpy as np
 import pandas as pd
-import sys
+
 # import matplotlib.pyplot as plt
 # import seaborn as sns
 # sns.set()
@@ -214,15 +214,6 @@ class CACCEnv:
             self._log_control_data(action, global_reward)
         if done and (self.is_record):
             self._log_traffic_data()
-
-        # NEW ------------------------------------------------------------------
-        print("STATE:", type(self._get_state()), self._get_state(), sep='\n')
-        print("REWARD:", type(reward), reward, sep='\n')
-        print("DONE:", type(done), done, sep='\n')
-        print("GLOBAL REWARD: ", type(global_reward), global_reward, sep='\n')
-        sys.exit(0)
-        #------------------------------------------------------------------------
-
         return self._get_state(), reward, done, global_reward
 
     def get_fingerprint(self):

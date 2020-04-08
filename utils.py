@@ -163,14 +163,15 @@ class Trainer():
             value = self.model.forward(ob, done, self.naction, 'v')
         return value
 
-    def _log_episode(self, global_step, mean_reward, std_reward):
+    def _log_episode(self, global_step, mean_reward, std_reward, sum_reward):
         log = {'agent': self.agent,
                'step': global_step,
                'test_id': -1,
+               'collective_reward' : sum_reward,
                'avg_reward': mean_reward,
                'std_reward': std_reward}
         self.data.append(log)
-        self._add_summary(mean_reward, global_step)
+        self._add_summary(sum_reward, global_step) # logging sum_reward is consistent with the metric used in the social influence paper
         self.summary_writer.flush()
 
     def explore(self, prev_ob, prev_done):
@@ -258,13 +259,14 @@ class Trainer():
             rewards = np.array(self.episode_rewards)
             mean_reward = np.mean(rewards)
             std_reward = np.std(rewards)
+            sum_reward = np.sum(self.episode_rewards)
             # NOTE: for CACC we have to run another testing episode after each
             # training episode since the reward and policy settings are different!
             if not (self.env.name.startswith('atsc') or self.env.name.startswith('ssd')):
                 self.env.train_mode = False
                 mean_reward, std_reward = self.perform(-1)
                 self.env.train_mode = True
-            self._log_episode(global_step, mean_reward, std_reward)
+            self._log_episode(global_step, mean_reward, std_reward, sum_reward)
         df = pd.DataFrame(self.data)
         df.to_csv(self.output_path + 'train_reward.csv')
 
@@ -345,7 +347,7 @@ class Evaluator(Tester):
         for test_ind in range(self.test_num):
             reward, _ = self.perform(test_ind, gui=self.gui)
             self.env.terminate()
-            logging.info('test %i, avg reward %.2f' % (test_ind, reward))
+            logging.info('test %i, avg reward %.2f, collective_reward %.2f' % (test_ind, reward, reward*self.env.t))
             time.sleep(2)
             self.env.collect_tripinfo()
         self.env.output_data()
