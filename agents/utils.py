@@ -848,7 +848,11 @@ class MultiAgentOnPolicyBuffer(OnPolicyBuffer):
             self._add_R_Adv(R)
         else:
             self._add_s_R_Adv(R)
-        obs = np.transpose(np.array(self.obs, dtype=np.float32), (1, 0, 2))
+        obs = np.array(self.obs, dtype=np.float32)
+        if len(obs.shape) == 5: # shape: (batch_size, n_agent, img_h, img_w, n_channels)
+            obs = np.transpose(obs, axes=(1, 0, 2, 3, 4)) # shape: (n_agent, batch_size, img_h, img_w, n_channels)
+        else:
+            obs = np.transpose(obs, axes=(1, 0, 2))
         policies = np.transpose(np.array(self.adds, dtype=np.float32), (1, 0, 2))
         acts = np.transpose(np.array(self.acts, dtype=np.int32))
         Rs = np.array(self.Rs, dtype=np.float32)

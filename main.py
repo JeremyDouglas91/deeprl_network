@@ -117,13 +117,13 @@ def train(args):
     # init centralized or multi agent
     seed = config.getint('ENV_CONFIG', 'seed')
     model = init_agent(env, config['MODEL_CONFIG'], total_step, seed) # returns agent class 
-
-    print("before init_train()")
+    logging.info('Agent model initialised. Training....')
+    
     # disable multi-threading for safe SUMO implementation
     summary_writer = tf.summary.FileWriter(dirs['log'], graph=model.sess.graph)
     trainer = Trainer(env, model, global_counter, summary_writer, output_path=dirs['data'])
     trainer.run()
-    print("after init_train()")
+    logging.info('Training done.')
 
     # save model
     final_step = global_counter.cur_step

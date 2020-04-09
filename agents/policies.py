@@ -245,7 +245,7 @@ class NCMultiAgentPolicy(Policy):
         if not self.identical:
             self.n_s_ls = n_s_ls
             self.n_a_ls = n_a_ls
-        self._init_policy(n_agent, neighbor_mask, n_h)
+        self._init_policy(n_agent, neighbor_mask, n_h, n_fc)
 
     def backward(self, sess, obs, policies, acts, dones, Rs, Advs, cur_lr,
                  summary_writer=None, global_step=None):
@@ -333,10 +333,22 @@ class NCMultiAgentPolicy(Policy):
             policy = self.policy_bw
             action = self.action_bw
             done = self.done_bw
+
+        # NEW: Conv and FC layers -----------------------------------------
+        h = []
+        for i in range(self.n_agent):
+            conv_scope = 'conv_agent_{}'.format(i)
+            fc_scope = 'fc_agent_{}'.format(i)
+            h_i = conv_to_linear(x=ob[i], scope=conv_scope, n_out=self.n_fc) # local state
+            h_i = fc(x=h_i, scope=fc_scope, n_out=self.n_fc)
+            h.append(h_i)
+        h = tf.reshape(tf.concat(h, axis=0), shape=[self.n_agent,-1,self.n_fc])
+        # NEW: Conv and FC layers -----------------------------------------
+        
         if self.identical:
-            h, new_states = lstm_comm(ob, policy, done, self.neighbor_mask, self.states, 'lstm_comm')
+            h, new_states = lstm_comm(h, policy, done, self.neighbor_mask, self.states, 'lstm_comm')
         else:
-            h, new_states = lstm_comm_hetero(ob, policy, done, self.neighbor_mask, self.states,
+            h, new_states = lstm_comm_hetero(h, policy, done, self.neighbor_mask, self.states,
                                              self.n_s_ls, self.n_a_ls, 'lstm_comm')
         pi_ls = []
         v_ls = []
@@ -361,15 +373,21 @@ class NCMultiAgentPolicy(Policy):
             pi_ls = tf.squeeze(tf.concat(pi_ls, axis=0))
         return pi_ls, tf.squeeze(tf.concat(v_ls, axis=0)), new_states
 
-    def _init_policy(self, n_agent, neighbor_mask, n_h):
+    def _init_policy(self, n_agent, neighbor_mask, n_h, n_fc):
         self.n_agent = n_agent
         self.neighbor_mask = neighbor_mask #n_agent x n_agent
-        self.n_h = n_h
-        self.ob_fw = tf.placeholder(tf.float32, [n_agent, 1, self.n_s]) # forward 1-step
+        self.n_h = n_h # hidden units in LSTM
+        # NEW ------------------------------------------------------------------------
+        self.n_fc = n_fc
+        height, width, channel = self.n_s
+        self.ob_fw = tf.placeholder(tf.float32, [n_agent, 1, height, width, channel]) # forward 1-step
+        # NEW ------------------------------------------------------------------------
         self.policy_fw = tf.placeholder(tf.float32, [n_agent, 1, self.n_a])
         self.action_fw = tf.placeholder(tf.int32, [n_agent, 1])
         self.done_fw = tf.placeholder(tf.float32, [1])
-        self.ob_bw = tf.placeholder(tf.float32, [n_agent, self.n_step, self.n_s]) # backward n-step
+        # NEW ------------------------------------------------------------------------
+        self.ob_bw = tf.placeholder(tf.float32, [n_agent, self.n_step, height, width, channel]) # backward n-step
+        # NEW ------------------------------------------------------------------------
         self.policy_bw = tf.placeholder(tf.float32, [n_agent, self.n_step, self.n_a])
         self.action_bw = tf.placeholder(tf.int32, [n_agent, self.n_step])
         self.done_bw = tf.placeholder(tf.float32, [self.n_step])
