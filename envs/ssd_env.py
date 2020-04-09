@@ -1,28 +1,43 @@
-import matplotlib
+"""
+A wrapper class for the sequential social dilema (SSD) 
+environments Cleanup and Harvest.
+@author: Arnu Pretorius, Elan, Jeremy du Plessis
+"""
 import configparser
+import gym
 import logging
-import gym, ray
+import matplotlib
 import numpy as np
 import pandas as pd
+import ray
 
 from social_dilemmas.envs.cleanup import CleanupEnv
 from social_dilemmas.envs.harvest import HarvestEnv
 
-matplotlib.use('agg')
+matplotlib.use('agg') # what are we using this for?
+gym.logger.set_level(40) # supress precision warning when using 32-bit float
 DEFULT_MAX_STEPS = 1000
 
 class SSDEnv(gym.Env, ray.rllib.env.MultiAgentEnv):
     def __init__(self, config):
-        self.scenario = config.get("scenario")
-        self.name = config.get("scenario") # the trainer needs this, annoyingly. 
-        self.agent = config.get("agent")
-        self.n_agent = config.getint("n_agent")
+        """
+        Constructor for ssd env wrapper:
+        -------------------------------
+        - initialise instance variables from config file parameters.
+        - load core environment.
+        - call additional intialisation functions.
+        """
+        self.scenario = config.get("scenario") # e.g. ssd_cleanup
+        self.name = config.get("scenario") # annoyingly, the nmarl code needs this. 
+        self.agent = config.get("agent") # e.g. ia2c_fp
+        self.n_agent = config.getint("n_agent") # number of agents 
         self.agent_tags = ['agent-%s'%(i) for i in range(self.n_agent)]
         self.coop_gamma = config.getfloat('coop_gamma') # Spatial discount factor
-        self.dt = config.getfloat('control_interval_sec') # control step (always 1 for cleanup and harvest)
+        self.dt = config.getfloat('control_interval_sec') # control interval (always 1 for cleanup and harvest)
         self.T = int(config.getint('episode_length_sec') / self.dt) # max steps
+        assert (self.T == DEFULT_MAX_STEPS)
         self.cur_episode = 0 # episode counter 
-        self.is_record = False # record data for each step (usually only during evaluation)
+        self.is_record = False # record data for each step (only True during evaluation)
         self.train_mode = True
 
         if self.scenario.lower().endswith("harvest"):
@@ -38,15 +53,32 @@ class SSDEnv(gym.Env, ray.rllib.env.MultiAgentEnv):
         # Set seeds for reproducible experiments
         self.seed = config.getint('seed')
         test_seeds = [int(s) for s in config.get('test_seeds').split(',')]
-        self.init_test_seeds(test_seeds) # this function call is annoying, but the evaluation function uses it.
+        self.init_test_seeds(test_seeds)
     
     def init_data(self, is_record, record_stats, output_path):
+        """
+        params
+        ------
+        is_record:    boolean, whether or not to record metrics during evaluation.
+        record_stats: boolean, not used for ssd.
+        output_path:  string, location to save .csv file with metrics.
+        """
         self.is_record = is_record
         self.output_path = output_path
         if self.is_record:
             self.control_data = []
 
     def _init_space(self):
+        """
+        Initialise objects in the task space:
+        -------------------------------------
+        - env action & observation space
+        - num actions per agent
+        - agent adjacency matrix (graph)
+        - agent distance matrix (graph)
+        - observation dimension per agent (15,15,3)
+        - agent finger prints (distribution of actions over state)
+        """
         # action and observatrion space
         env_window_size = 2 * self.env.agents[list(self.env.agents.keys())[0]].view_len + 1
         obs_shape =  (env_window_size, env_window_size, 3) # TF needs shape (height, width, channels)
@@ -75,6 +107,11 @@ class SSDEnv(gym.Env, ray.rllib.env.MultiAgentEnv):
         self.fp = np.ones((self.n_agent, self.n_a)) / self.n_a
 
     def init_test_seeds(self, test_seeds):
+        """
+        params:
+        -------
+        test_seeds: list (int), seeds used in model evaluation.
+        """
         self.test_num = len(test_seeds)
         self.test_seeds = test_seeds
 
@@ -83,6 +120,14 @@ class SSDEnv(gym.Env, ray.rllib.env.MultiAgentEnv):
         return
 
     def _log_control_data(self, action, global_reward):
+        """
+        Log control data at each step during evaluation.
+
+        params:
+        -------
+        action: list (int), agent actions.
+        global_reward: float, collective reward (undiscounted).
+        """
         action_r = ','.join(['%d' % a for a in action])
         cur_control = {'episode': self.cur_episode,
                        'step': self.t,
@@ -91,15 +136,51 @@ class SSDEnv(gym.Env, ray.rllib.env.MultiAgentEnv):
         self.control_data.append(cur_control)
 
     def get_fingerprint(self):
+        """
+        Returns agents fingerprints (policies).
+        
+        returns:
+        --------
+        self.fp: 2D list (float), one policy (distribution 
+                 over actions) per agent.
+        """
         return self.fp
 
     def get_neighbor_action(self, action):
+        """
+        Get actions of each agents neighbour in 
+        the graph.
+
+        params:
+        -------
+        action: list (int), agent actions for a single
+                time step.
+
+        returns:
+        --------
+        naction: 2D list (int), neighbour actions for 
+                 each agent.  
+        """
         naction = []
         for i in range(self.n_agent):
             naction.append(action[self.neighbor_mask[i] == 1])
         return naction
 
     def _get_state(self, obs_env):
+        """
+        Return the apprpriate observations to the agents
+        depending on the type of algoithm being run.
+
+        params
+        ------
+        obs_env: 4D list (float), list of observations 
+                 from the core environment, one per agent.
+
+        returns:
+        --------
+        state: ND list (float), list of appropriate 
+               observations, one per agent.
+        """
         state = []
         for i in range(self.n_agent):
             img_obs_norm = obs_env[i]/self.observation_space.high
@@ -118,13 +199,28 @@ class SSDEnv(gym.Env, ray.rllib.env.MultiAgentEnv):
         return state
 
     def output_data(self):
+        """
+        Save control data from evaluation to disk.
+        """
         if not self.is_record:
             logging.error('Env: no record to output!')
         control_data = pd.DataFrame(self.control_data)
         control_data.to_csv(self.output_path + ('%s_%s_control.csv' % (self.name, self.agent)))
 
     def reset(self, gui=False, test_ind=-1):
-        # set seed 
+        """
+        Reset environment state, set new random seeds, 
+        reset metrics, update episode counter etc.
+        
+        params:
+        -------
+        gui: not used for ssd environments.
+
+        returns:
+        --------
+        obs: ND list (float), appropriate observations, 
+             one per agent. 
+        """
         if (self.train_mode):
             seed = self.seed
         elif (test_ind < 0):
@@ -146,16 +242,18 @@ class SSDEnv(gym.Env, ray.rllib.env.MultiAgentEnv):
 
     def step(self, action):
         """
-        parameters
-        ----------
+        params:
+        -------
         action: list (int), one action for each of self.n_agent
 
-        return
-        ------
-        obs: list of numpy arrays
-        reward: float if coop_gamma < 0 else numpy array 
-        done: boolean
-        global_reward: float
+        returns:
+        --------
+        obs: ND list (float), appropriate observations, 
+             one per agent. 
+        reward: global_reward if coop_gamma < 0 else numpy array
+                of individual rewards.
+        done: boolean.
+        global_reward: float, collective reward (undiscounted)
         """
         # increment episode step counter
         self.t += 1
@@ -186,8 +284,15 @@ class SSDEnv(gym.Env, ray.rllib.env.MultiAgentEnv):
         return obs, reward, done, global_reward
 
     def terminate(self):
+        """
+        not used in ssd.
+        """
         return
 
     def update_fingerprint(self, fp):
+        """
+        Sets agents fingerprints (policies); distributions
+        over actions given the current state.
+        """
         self.fp = fp
 

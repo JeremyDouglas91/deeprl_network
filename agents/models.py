@@ -2,7 +2,6 @@
 IA2C and MA2C algorithms
 @author: Tianshu Chu
 """
-
 import os
 from agents.utils import OnPolicyBuffer, MultiAgentOnPolicyBuffer, Scheduler
 from agents.policies import (LstmPolicy, FPPolicy, ConsensusPolicy, NCMultiAgentPolicy,
@@ -19,16 +18,18 @@ class IA2C:
     def __init__(self, n_s_ls, n_a_ls, neighbor_mask, distance_mask, coop_gamma,
                  total_step, model_config, seed=0):
         """
-        paraneters
-        ----------
-        n_s_ls: list, one entry per agent; length of state vector in CACC/ATCS OR shape of state tensor for cleanup/harvest
-        n_a_ls: list, one entry per agent; number of discrete actions available
-        neighbor_mask: adjacency matrix (n_agent, n_agent); 1 if agents are adjacent, 0 otherwise.
-        distance_mask: matrix (n_agent, n_agent); distance between each pair of agents in the graph
-        coop_gamma: float/int; temporal discount factor
-        total_step: integer; total number of training steps
-        config: 'model config' parameters from file
-        seed: seed for reproducability (initialisations etc)
+        params
+        ------
+        n_s_ls:         list, one entry per agent; shape of state tensor for 
+                        cleanup/harvest.
+        n_a_ls:         list, one entry per agent; number of discrete actions.
+        neighbor_mask:  adjacency matrix (n_agent, n_agent).
+        distance_mask:  matrix (n_agent, n_agent); distance between each pair 
+                        of agents in the graph.
+        coop_gamma:     float/int; spatial discount factor.
+        total_step:     integer; total number of training steps.
+        config:         config object from .yml config file.
+        seed:           random seed.
         """
         self.name = 'ia2c'
         self._init_algo(n_s_ls, n_a_ls, neighbor_mask, distance_mask, coop_gamma,
@@ -94,31 +95,45 @@ class IA2C:
 
     def _init_algo(self, n_s_ls, n_a_ls, neighbor_mask, distance_mask, coop_gamma,
                    total_step, seed, model_config):
-        # init params
+        """
+        params
+        ------
+        n_s_ls:         list, one entry per agent; shape of state tensor for 
+                        cleanup/harvest.
+        n_a_ls:         list, one entry per agent; number of discrete actions.
+        neighbor_mask:  adjacency matrix (n_agent, n_agent).
+        distance_mask:  matrix (n_agent, n_agent); distance between each pair 
+                        of agents in the graph.
+        coop_gamma:     float/int; spatial discount factor.
+        total_step:     integer; total number of training steps.
+        config:         config object from .yml config file.
+        seed:           random seed.
+        """
+        # init instance variables
         self.n_s_ls = n_s_ls
         self.n_a_ls = n_a_ls
         self.identical_agent = False
         if (max(self.n_a_ls) == min(self.n_a_ls)):
             # note for identical IA2C, n_s_ls may have varient dims
             self.identical_agent = True
-            self.n_s = n_s_ls[0]
-            self.n_a = n_a_ls[0]
+            self.n_s = n_s_ls[0] # dimmension of obs (15,15,3)
+            self.n_a = n_a_ls[0] # number of discrete actions
         else:
-            self.n_s = max(self.n_s_ls) # dimmension of state tensor
-            self.n_a = max(self.n_a_ls) # number of discrete actions
+            self.n_s = max(self.n_s_ls) 
+            self.n_a = max(self.n_a_ls) 
         self.neighbor_mask = neighbor_mask
         self.n_agent = len(self.neighbor_mask)
-        self.reward_clip = model_config.getfloat('reward_clip') # not sure 
-        self.reward_norm = model_config.getfloat('reward_norm') # not sure
+        self.reward_clip = model_config.getfloat('reward_clip')  
+        self.reward_norm = model_config.getfloat('reward_norm')
         self.n_step = model_config.getint('batch_size')
-        self.n_fc = model_config.getint('num_fc') # number of units in fully-connected layer 
-        self.n_lstm = model_config.getint('num_lstm') # number of hidden units in lstm
+        self.n_fc = model_config.getint('num_fc') # num units in fc layer
+        self.n_lstm = model_config.getint('num_lstm') # num units in lstm layer
         # init tf
         tf.reset_default_graph()
         tf.set_random_seed(seed)
         config = tf.ConfigProto(allow_soft_placement=True) # give ops to cpu if no gpus are available
-        self.sess = tf.Session(config=config) # tf session specific to this IA2C policy object
-        self.policy = self._init_policy()
+        self.sess = tf.Session(config=config) 
+        self.policy = self._init_policy() # build model policy
         self.saver = tf.train.Saver(max_to_keep=5)
         # init exp buffer and lr scheduler for training
         if total_step:
@@ -130,11 +145,14 @@ class IA2C:
         policy = []
         for i in range(self.n_agent):
             n_n = np.sum(self.neighbor_mask[i])
+
             # NEW ------------------------------
-            n_s = (self.n_s_ls[i],0) # (dim of img obs, dim of full state once output of conv and other state info have been concatenated)
+            #dim of obs, dim of additional state vector (0 for IA2C)
+            n_s = (self.n_s_ls[i],0) # 
             # NEW ------------------------------
             
-            if self.identical_agent: # clean up and harvest agents will be identical 
+            # build policy for single agent
+            if self.identical_agent:
                 policy.append(LstmPolicy(n_s, self.n_a_ls[i], n_n, self.n_step,
                                          n_fc=self.n_fc, n_lstm=self.n_lstm, name='%d' % i))
             else:
@@ -292,6 +310,7 @@ class IA2C_CU(MA2C_NC):
             return ConsensusPolicy(self.n_s, self.n_a, self.n_agent, self.n_step,
                                    self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm,
                                    n_s_ls=self.n_s_ls, n_a_ls=self.n_a_ls, identical=False)
+
 
 
 class MA2C_IC3(MA2C_NC):

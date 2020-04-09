@@ -344,7 +344,7 @@ class NCMultiAgentPolicy(Policy):
             h.append(h_i)
         h = tf.reshape(tf.concat(h, axis=0), shape=[self.n_agent,-1,self.n_fc])
         # NEW: Conv and FC layers -----------------------------------------
-        
+
         if self.identical:
             h, new_states = lstm_comm(h, policy, done, self.neighbor_mask, self.states, 'lstm_comm')
         else:
@@ -414,7 +414,7 @@ class ConsensusPolicy(NCMultiAgentPolicy):
         self.n_agent = n_agent
         self.n_h = n_h
         self.neighbor_mask = neighbor_mask
-        self._init_policy(n_agent, neighbor_mask, n_h)
+        self._init_policy(n_agent, neighbor_mask, n_h, n_fc)
 
     def backward(self, sess, obs, policies, acts, dones, Rs, Advs, cur_lr,
                  summary_writer=None, global_step=None):
@@ -444,7 +444,10 @@ class ConsensusPolicy(NCMultiAgentPolicy):
         v_ls = []
         new_states_ls = []
         for i in range(self.n_agent):
-            h_i = fc(ob[i], 'fc_%da' % i, self.n_h)
+            # NEW -----------------------------------------------------------
+            h_i = conv_to_linear(x=ob[i], scope='conv_%da' % i, n_out=self.n_fc) # local state
+            # NEW -------------------------------------------------------------
+            h_i = fc(h_i, 'fc_%da' % i, self.n_h)
             h_i, new_states = lstm(h_i, done, self.states[i], 'lstm_%da' % i)
             if self.identical:
                 pi = self._build_actor_head(h_i, agent_name='%d' % i)
@@ -493,7 +496,7 @@ class ConsensusPolicy(NCMultiAgentPolicy):
             mean_wt_n.append(cur_wts)
         return mean_wt_n, wt_i
 
-
+# IC3 -> CommNet
 class IC3MultiAgentPolicy(NCMultiAgentPolicy):
     """Reference code: https://github.com/IC3Net/IC3Net/blob/master/comm.py.
        Note in IC3, the message is generated from hidden state only, so current state
@@ -504,7 +507,7 @@ class IC3MultiAgentPolicy(NCMultiAgentPolicy):
         if not self.identical:
             self.n_s_ls = n_s_ls
             self.n_a_ls = n_a_ls
-        self._init_policy(n_agent, neighbor_mask, n_h)
+        self._init_policy(n_agent, neighbor_mask, n_h, n_fc)
 
     def _build_net(self, in_type):
         if in_type == 'forward':
@@ -515,10 +518,22 @@ class IC3MultiAgentPolicy(NCMultiAgentPolicy):
             ob = self.ob_bw
             action = self.action_bw
             done = self.done_bw
+
+        # NEW: Conv and FC layers -----------------------------------------
+        h = []
+        for i in range(self.n_agent):
+            conv_scope = 'conv_agent_{}'.format(i)
+            fc_scope = 'fc_agent_{}'.format(i)
+            h_i = conv_to_linear(x=ob[i], scope=conv_scope, n_out=self.n_fc) # local state
+            h_i = fc(x=h_i, scope=fc_scope, n_out=self.n_fc)
+            h.append(h_i)
+        h = tf.reshape(tf.concat(h, axis=0), shape=[self.n_agent,-1,self.n_fc])
+        # NEW: Conv and FC layers -----------------------------------------
+
         if self.identical:
-            h, new_states = lstm_ic3(ob, done, self.neighbor_mask, self.states, 'lstm_ic3')
+            h, new_states = lstm_ic3(h, done, self.neighbor_mask, self.states, 'lstm_ic3')
         else:
-            h, new_states = lstm_ic3_hetero(ob, done, self.neighbor_mask, self.states,
+            h, new_states = lstm_ic3_hetero(h, done, self.neighbor_mask, self.states,
                                             self.n_s_ls, self.n_a_ls, 'lstm_ic3')
         pi_ls = []
         v_ls = []
@@ -551,7 +566,7 @@ class DIALMultiAgentPolicy(NCMultiAgentPolicy):
         if not self.identical:
             self.n_s_ls = n_s_ls
             self.n_a_ls = n_a_ls
-        self._init_policy(n_agent, neighbor_mask, n_h)
+        self._init_policy(n_agent, neighbor_mask, n_h, n_fc)
 
     def _build_net(self, in_type):
         if in_type == 'forward':
@@ -564,10 +579,22 @@ class DIALMultiAgentPolicy(NCMultiAgentPolicy):
             policy = self.policy_bw
             action = self.action_bw
             done = self.done_bw
+
+        # NEW: Conv and FC layers -----------------------------------------
+        h = []
+        for i in range(self.n_agent):
+            conv_scope = 'conv_agent_{}'.format(i)
+            fc_scope = 'fc_agent_{}'.format(i)
+            h_i = conv_to_linear(x=ob[i], scope=conv_scope, n_out=self.n_fc) # local state
+            h_i = fc(x=h_i, scope=fc_scope, n_out=self.n_fc)
+            h.append(h_i)
+        h = tf.reshape(tf.concat(h, axis=0), shape=[self.n_agent,-1,self.n_fc])
+        # NEW: Conv and FC layers -----------------------------------------
+
         if self.identical:
-            h, new_states = lstm_dial(ob, policy, done, self.neighbor_mask, self.states, 'lstm_comm')
+            h, new_states = lstm_dial(h, policy, done, self.neighbor_mask, self.states, 'lstm_comm')
         else:
-            h, new_states = lstm_dial_hetero(ob, policy, done, self.neighbor_mask, self.states,
+            h, new_states = lstm_dial_hetero(h, policy, done, self.neighbor_mask, self.states,
                                              self.n_s_ls, self.n_a_ls, 'lstm_comm')
         pi_ls = []
         v_ls = []

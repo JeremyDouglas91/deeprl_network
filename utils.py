@@ -149,7 +149,7 @@ class Trainer():
 
     def _get_value(self, ob, done, action):
         """
-        returns
+        return:
         -------
         value: list, state values for each agent depending on the local state
                as well as the actions of the agents neighbours 

@@ -12,8 +12,8 @@ import configparser
 import logging
 import tensorflow as tf
 import threading
-from envs.cacc_env import CACCEnv
 from envs.ssd_env import SSDEnv
+# from envs.cacc_env import CACCEnv
 #from envs.large_grid_env import LargeGridEnv
 #from envs.real_net_env import RealNetEnv
 from agents.models import IA2C, IA2C_FP, IA2C_CU, MA2C_NC, MA2C_IC3, MA2C_DIAL
@@ -55,40 +55,38 @@ def init_env(config, port=0):
     elif scenario.startswith('cacc'):
         return CACCEnv(config)
     else:
-        # NEW: SSD environments
         return SSDEnv(config)
 
 
 def init_agent(env, config, total_step, seed):
     """
-    paraneters
-    ----------
-    n_s_ls: list, one entry per agent; length of state vector in CACC/ATCS OR shape of state tensor for cleanup/harvest
-    n_a_ls: list, one entry per agent; number of discrete actions available
-    neighbor_mask: adjacency matrix (n_agent, n_agent); 1 if agents are adjacent, 0 otherwise.
-    distance_mask: matrix (n_agent, n_agent); distance between each pair of agents in the graph
-    coop_gamma: float/int; temporal discount factor
-    total_step: integer; total number of training steps
-    config: 'model config' parameters from file
-    seed: seed for reproducability (initialisations etc)
+    params:
+    -------
+    env: environment.
+    config: .yml config file with task parameters.
+    total_step: int, number of training steps.
+    seed: int, random seed for reporoducible model initialisation.
+
+    returns:
+    --------
+    MARL agent model
     """
     if env.agent == 'ia2c':
         return IA2C(env.n_s_ls, env.n_a_ls, env.neighbor_mask, env.distance_mask, env.coop_gamma,
                     total_step, config, seed=seed)
-    elif env.agent == 'ia2c_fp':
+    elif env.agent == 'ia2c_fp': # FingerPrint
         return IA2C_FP(env.n_s_ls, env.n_a_ls, env.neighbor_mask, env.distance_mask, env.coop_gamma,
                        total_step, config, seed=seed)
-    elif env.agent == 'ma2c_nc':
+    elif env.agent == 'ma2c_nc': # Neurcomm
         return MA2C_NC(env.n_s_ls, env.n_a_ls, env.neighbor_mask, env.distance_mask, env.coop_gamma,
                        total_step, config, seed=seed)
-    elif env.agent == 'ma2c_ic3':
-        # this is actually CommNet
-        return MA2C_IC3(env.n_s_ls, env.n_a_ls, env.neighbor_mask, env.distance_mask, env.coop_gamma,
-                        total_step, config, seed=seed)
-    elif env.agent == 'ma2c_cu':
+    elif env.agent == 'ma2c_cu': # Consensus
         return IA2C_CU(env.n_s_ls, env.n_a_ls, env.neighbor_mask, env.distance_mask, env.coop_gamma,
                        total_step, config, seed=seed)
-    elif env.agent == 'ma2c_dial':
+    elif env.agent == 'ma2c_ic3': # CommNet
+        return MA2C_IC3(env.n_s_ls, env.n_a_ls, env.neighbor_mask, env.distance_mask, env.coop_gamma,
+                        total_step, config, seed=seed)
+    elif env.agent == 'ma2c_dial': # DIAL
         return MA2C_DIAL(env.n_s_ls, env.n_a_ls, env.neighbor_mask, env.distance_mask, env.coop_gamma,
                          total_step, config, seed=seed)
     else:
@@ -96,30 +94,32 @@ def init_agent(env, config, total_step, seed):
 
 
 def train(args):
+    # create dirs for task (if not exist)
     base_dir = args.base_dir
-    dirs = init_dir(base_dir) # creates data, log, model folders if they do not exist
-    init_log(dirs['log']) # intialises logging, creates log file etc.
+    dirs = init_dir(base_dir)
+    init_log(dirs['log']) 
+    # copy and parse .yml config file 
     config_dir = args.config_dir
-    copy_file(config_dir, dirs['data']) # copy the config file to the data/ directory
+    copy_file(config_dir, dirs['data'])
     config = configparser.ConfigParser()
-    config.read(config_dir) # parse the .yml config file
+    config.read(config_dir) 
 
-    # init env
+    # init environemnt
     env = init_env(config['ENV_CONFIG'])
-    logging.info('Training on: %s action dim: %r, agent dim: %d' % (env.scenario, env.n_a_ls, env.n_agent))
+    logging.info('Training on: %s, action dim: %r, agent dim: %d' % (env.scenario, env.n_a_ls, env.n_agent))
 
-    # init step counter
+    # init counter
     total_step = int(config.getfloat('TRAIN_CONFIG', 'total_step'))
     test_step = int(config.getfloat('TRAIN_CONFIG', 'test_interval'))
     log_step = int(config.getfloat('TRAIN_CONFIG', 'log_interval'))
     global_counter = Counter(total_step, test_step, log_step)
 
-    # init centralized or multi agent
+    # init agent
     seed = config.getint('ENV_CONFIG', 'seed')
     model = init_agent(env, config['MODEL_CONFIG'], total_step, seed) # returns agent class 
     logging.info('Agent model initialised. Training....')
     
-    # disable multi-threading for safe SUMO implementation
+    # Init summary writer and train agent
     summary_writer = tf.summary.FileWriter(dirs['log'], graph=model.sess.graph)
     trainer = Trainer(env, model, global_counter, summary_writer, output_path=dirs['data'])
     trainer.run()
@@ -143,7 +143,7 @@ def evaluate_fn(agent_dir, output_dir, seeds, port, demo):
     config = configparser.ConfigParser()
     config.read(config_dir)
 
-    # init env
+    # init environment
     env = init_env(config['ENV_CONFIG'], port=port)
     env.init_test_seeds(seeds)
 
@@ -160,6 +160,7 @@ def evaluate_fn(agent_dir, output_dir, seeds, port, demo):
 
 
 def evaluate(args):
+    # create sub-dirs to store output of evaluation
     base_dir = args.base_dir
     if not args.demo:
         dirs = init_dir(base_dir, pathes=['eva_data', 'eva_log'])
@@ -174,6 +175,7 @@ def evaluate(args):
         seeds = []
     else:
         seeds = [int(s) for s in seeds.split(',')]
+    # load and evaluate trained MARL model
     evaluate_fn(base_dir, output_dir, seeds, 1, args.demo)
 
 
