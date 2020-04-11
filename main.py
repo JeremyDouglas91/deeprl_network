@@ -2,10 +2,6 @@
 Main function for training and evaluating MARL algorithms in NMARL envs
 @author: Tianshu Chu
 """
-# Tempotarily append to the python path to import ssd envs - will fix later
-import sys
-sys.path.append('..')
-##########################################################################
 
 import argparse
 import configparser
@@ -106,7 +102,7 @@ def train(args):
 
     # init environemnt
     env = init_env(config['ENV_CONFIG'])
-    logging.info('Training on: %s, action dim: %r, agent dim: %d' % (env.scenario, env.n_a_ls, env.n_agent))
+    logging.info('Task: %s, action dim: %r, agent dim: %d' % (env.scenario, env.n_a_ls, env.n_agent))
 
     # init counter
     total_step = int(config.getfloat('TRAIN_CONFIG', 'total_step'))
