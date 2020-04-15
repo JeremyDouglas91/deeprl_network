@@ -132,6 +132,12 @@ class IA2C:
         tf.reset_default_graph()
         tf.set_random_seed(seed)
         config = tf.ConfigProto(allow_soft_placement=True) # give ops to cpu if no gpus are available
+        
+        # NEW (for TF-GPU) ---------------------------------------------------------------------------
+        config.gpu_options.allow_growth = True # tells TF to only use as much memory as needed
+        config.log_device_placement = True # tells TF to log which devices (CPU, GPU, etc) are being used
+        # NEW (for TF-GPU) ---------------------------------------------------------------------------
+        
         self.sess = tf.Session(config=config) 
         self.policy = self._init_policy() # build model policy
         self.saver = tf.train.Saver(max_to_keep=5)
