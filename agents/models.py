@@ -134,12 +134,13 @@ class IA2C:
         tf.set_random_seed(seed)
 
         # NEW (for TF-GPU) ---------------------------------------------------------------------------
-        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.1666)
-        config = tf.ConfigProto(gpu_options=gpu_options)
-        
+        config = tf.ConfigProto()
+        config.gpu_options.allow_growth = True # tells TF to only use as much memory as needed
+        config.log_device_placement = True # tells TF to log which devices (CPU, GPU, etc) are being used
         self.sess = tf.Session(config=config)
         set_session(self.sess)
         # NEW (for TF-GPU) --------------------------------------------------------------------------- 
+
         self.policy = self._init_policy() # build model policy
         self.saver = tf.train.Saver(max_to_keep=5)
         # init exp buffer and lr scheduler for training
