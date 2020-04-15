@@ -9,6 +9,7 @@ from agents.policies import (LstmPolicy, FPPolicy, ConsensusPolicy, NCMultiAgent
 import logging
 import numpy as np
 import tensorflow as tf
+from tensorflow.keras.backend import set_session
 
 class IA2C:
     """
@@ -133,14 +134,12 @@ class IA2C:
         tf.set_random_seed(seed)
 
         # NEW (for TF-GPU) ---------------------------------------------------------------------------
-        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.1666666)
-        config = tf.ConfigProto(allow_soft_placement=True, # give ops to cpu if no gpus are available
-                                log_device_placement = True,
-                                gpu_options=gpu_options
-                                ) 
-        # NEW (for TF-GPU) ---------------------------------------------------------------------------
+        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.1666)
+        config = tf.ConfigProto(gpu_options=gpu_options)
         
-        self.sess = tf.Session(config=config) 
+        self.sess = tf.Session(config=config)
+        set_session(self.sess)
+        # NEW (for TF-GPU) --------------------------------------------------------------------------- 
         self.policy = self._init_policy() # build model policy
         self.saver = tf.train.Saver(max_to_keep=5)
         # init exp buffer and lr scheduler for training
