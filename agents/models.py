@@ -131,11 +131,13 @@ class IA2C:
         # init tf
         tf.reset_default_graph()
         tf.set_random_seed(seed)
-        config = tf.ConfigProto(allow_soft_placement=True) # give ops to cpu if no gpus are available
-        
+
         # NEW (for TF-GPU) ---------------------------------------------------------------------------
-        config.gpu_options.per_process_gpu_memory_fraction = 0.1666 # tells TF to only use 1/6th of the GPU memory
-        config.log_device_placement = True # tells TF to log which devices (CPU, GPU, etc) are being used
+        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.1666666)
+        config = tf.ConfigProto(allow_soft_placement=True, # give ops to cpu if no gpus are available
+                                log_device_placement = True,
+                                gpu_options=gpu_options
+                                ) 
         # NEW (for TF-GPU) ---------------------------------------------------------------------------
         
         self.sess = tf.Session(config=config) 
