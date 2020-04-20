@@ -35,6 +35,10 @@ Available tasks:
 * ma2c_nc_cleanup
 * ma2c_nc_harvest
 
+For details on the hyperparameters in the cofig files see:
+
+https://docs.google.com/spreadsheets/d/1RABudTdKMeUmkxPfKCASuT9bmSBcFkJPG--L1XLLj60/edit?usp=sharing
+
 1. To train a new agent: 
 
 Pull the docker image (if you havent already):
