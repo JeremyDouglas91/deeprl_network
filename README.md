@@ -1,5 +1,6 @@
 # Networked Multi-agent RL (NMARL)
-This repo implements the state-of-the-art MARL algorithms for networked system control, with observability and communication of each agent limited to its neighborhood. For fair comparison, all algorithms are applied to A2C agents, classified into two groups: IA2C contains non-communicative policies which utilize neighborhood information only, whereas MA2C contains communicative policies with certain communication protocols.
+
+[NOTE]: this README has been updated for the purpose of running NMARL baseline experiments for the Sequantial Social Dilemma tasks Cleanup and Harvest.
 
 Available IA2C algorithms:
 * PolicyInferring: [Lowe, Ryan, et al. "Multi-agent actor-critic for mixed cooperative-competitive environments." Advances in Neural Information Processing Systems, 2017.](https://papers.nips.cc/paper/7217-multi-agent-actor-critic-for-mixed-cooperative-competitive-environments.pdf)
@@ -12,42 +13,66 @@ Available MA2C algorithms:
 * CommNet: [Sukhbaatar, Sainbayar, et al. "Learning multiagent communication with backpropagation." Advances in Neural Information Processing Systems, 2016.](https://arxiv.org/pdf/1605.07736.pdf)
 * NeurComm: Inspired from [Gilmer, Justin, et al. "Neural message passing for quantum chemistry." arXiv preprint arXiv:1704.01212, 2017.](https://arxiv.org/pdf/1704.01212.pdf)
 
-Available NMARL scenarios:
-* ATSC Grid: Adaptive traffic signal control in a synthetic traffic grid.
-* ATSC Monaco: Adaptive traffic signal control in a real-world traffic network from Monaco city.
-* CACC Catch-up: Cooperative adaptive cruise control for catching up the leadinig vehicle.
-* CACC Slow-down: Cooperative adaptive cruise control for following the leading vehicle to slow down.
+Available NMARL-SSD scenarios:
+* Cleanup 
+* Hervest
 
-## Requirements
-* Python3 == 3.5.2
-* [Tensorflow](http://www.tensorflow.org/install) == 1.12.0 
-* [SUMO](http://sumo.dlr.de/wiki/Installing) == 1.1.0
+For more details see https://github.com/JeremyDouglas91/sequential_social_dilemma_games and https://arxiv.org/pdf/1810.08647.pdf.
 
 ## Usages
-First define all hyperparameters (including algorithm and DNN structure) in a config file under `[config_dir]` ([examples](./config)), and create the base directory of each experiement `[base_dir]`. For ATSC Grid, please call [`build_file.py`](./envs/large_grid_data) to generate SUMO network files before training.
 
-1. To train a new agent, run
+Available tasks:
+* ia2c_cleanup
+* ia2c_harvest
+* ia2c_fp_cleanup
+* ia2c_fp_harvest
+* ma2c_cu_cleanup
+* ma2c_cu_harvest
+* ma2c_ic3_cleanup
+* ma2c_ic3_harvest
+* ma2c_dial_cleanup
+* ma2c_dial_harvest
+* ma2c_nc_cleanup
+* ma2c_nc_harvest
+
+For details on the hyperparameters in the cofig files see:
+
+https://docs.google.com/spreadsheets/d/1RABudTdKMeUmkxPfKCASuT9bmSBcFkJPG--L1XLLj60/edit?usp=sharing
+
+1. To train a new agent: 
+
+Pull the docker image (if you havent already):
 ~~~
-python3 main.py --base-dir [base_dir] train --config-dir [config_dir]
+docker pull instadeepct/baselines:latest
 ~~~
-Training config/data and the trained model will be output to `[base_dir]/data` and `[base_dir]/model`, respectively.
+
+Spin up the container (for example):
+
+~~~
+docker run -it --rm --gpus all -p 8888:8888 -p 6006:6006  -v "$(pwd)":/wd -w /wd --name ssd-baselines instadeepct/baselines:latest bash
+~~~
+
+Navigate to the `/tmp/deeprl_network` directory in the container, ensure the output folder (`/tmp/deeprl_network/output/`) is empty as there may be data from previous runs. Then, select a task from the list above and run:
+~~~
+python main.py --base-dir 'output/[task_name]' train --config-dir 'config/config_[task_name].ini
+~~~
+
+Training config/data and the trained model will be output to `output/[task_name]/data` and `output/[task_name]/model`, respectively.
 
 2. To access tensorboard during training, run
 ~~~
-tensorboard --logdir=[base_dir]/log
+tensorboard --logdir=output/
 ~~~
+
+View the output in your browser at `localhost:[port]` where the port will either be 6006 or 8888 (as per the `docker run` command).
 
 3. To evaluate a trained agent, run
 ~~~
-python3 main.py --base-dir [base_dir] evaluate --evaluation-seeds [seeds]
+python main.py --base-dir 'output/[task_name]' evaluate --evaluation-seeds [seeds]
 ~~~
-Evaluation data will be output to `[base_dir]/eva_data`. Make sure evaluation seeds are different from those used in training.    
+Evaluation data will be output to `'output/[task_name]/eva_data`.     
 
-4. To visualize the agent behavior in ATSC scenarios, run
-~~~
-python3 main.py --base-dir [base_dir] evaluate --evaluation-seeds [seed] --demo
-~~~
-It is recommended to use only one evaluation seed for the demo run. This will launch the SUMO GUI, and [`view.xml`](./envs/large_grid_data) can be applied to visualize queue length and intersectin delay in edge color and thickness. 
+[From the original authors:]
 
 ## Citation
 For more implementation details and underlying reasonings, please check our paper [Multi-agent Reinforcement Learning for Networked System Control](https://openreview.net/forum?id=Syx7A3NFvH).
