@@ -1,5 +1,0 @@
-2020-04-09 17:13:25,446 [INFO] Evaluation: random seeds: 10,20,30
-2020-04-09 17:13:50,138 [INFO] Checkpoint loaded: checkpoint-100000
-2020-04-09 17:13:59,865 [INFO] test 0, avg reward 0.41, collective_reward 407.00
-2020-04-09 17:14:09,846 [INFO] test 1, avg reward 0.46, collective_reward 455.00
-2020-04-09 17:14:19,292 [INFO] test 2, avg reward 0.48, collective_reward 479.00

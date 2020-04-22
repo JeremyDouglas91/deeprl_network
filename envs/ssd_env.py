@@ -101,7 +101,13 @@ class SSDEnv(gym.Env, ray.rllib.env.MultiAgentEnv):
         np.fill_diagonal(self.distance_mask,0)
 
         # dimensions of local observation, 1 per agent 
-        self.n_s_ls = [obs_shape for i in range(self.n_agent)]
+        self.n_s_ls = []
+        for i in range(self.n_agent):
+            if self.agent.startswith('ma2c'):
+                num_n = 1
+            else:
+                num_n = 1 + np.sum(self.neighbor_mask[i])
+            self.n_s_ls.append((num_n, obs_shape[0], obs_shape[1], obs_shape[2]))
 
         # initialise finger print (policy distribution over actions per agent)
         self.fp = np.ones((self.n_agent, self.n_a)) / self.n_a
@@ -182,20 +188,32 @@ class SSDEnv(gym.Env, ray.rllib.env.MultiAgentEnv):
                observations, one per agent.
         """
         state = []
+        obs_env = obs_env/self.observation_space.high
         for i in range(self.n_agent):
-            img_obs_norm = obs_env[i]/self.observation_space.high
-            if self.agent == 'ia2c_fp':
-                n_fps = []
-                # finger prints must be attached at the end of the state array
-                for j in np.where(self.neighbor_mask[i] == 1)[0]:
-                    n_fps.append(self.fp[j])
-                n_fps = np.concatenate(n_fps) # all finger prints from neighbours
-                cur_state = [img_obs_norm.astype(np.float32), n_fps.astype(np.float32)]
-            elif self.agent == 'ia2c':
-                cur_state = [img_obs_norm.astype(np.float32), np.array([]).astype(np.float32)]
-            else:
-                cur_state = img_obs_norm.astype(np.float32)
-            state.append(cur_state)
+            local_obs = obs_env[i]
+            if self.agent.startswith('ia2c'):
+                imgs = [local_obs]
+
+                if not self.agent == 'ia2c_fp': # ia2c
+                    for j in np.where(self.neighbor_mask[i] == 1)[0]:
+                        imgs.append(obs_env[j])
+                    imgs = np.array(imgs, dtype=np.float32)
+                    fps = np.array([], dtype=np.float32)
+
+                else: # ia2c_fp
+                    fps = []
+                    for j in np.where(self.neighbor_mask[i] == 1)[0]:
+                        imgs.append(obs_env[j])
+                        fps.append(self.fp[j])
+                    imgs = np.array(imgs, dtype=np.float32)
+                    fps = np.concatenate(fps).astype(np.float32) 
+
+                agent_obs = [imgs, fps]
+
+            else: # ma2c
+                agent_obs = local_obs.astype(np.float32)
+
+            state.append(agent_obs)
         return state
 
     def output_data(self):

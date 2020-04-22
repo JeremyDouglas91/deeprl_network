@@ -101,9 +101,9 @@ class LstmPolicy(Policy):
 
         # NEW ------------------------------------------------
         self.img_dims, self.vec_dims = n_s
-        height, width, channel = self.img_dims[0], self.img_dims[1], self.img_dims[2]
-        self.ob_im_fw = tf.placeholder(tf.float32, [1, height, width, channel]) # img portion of obs (1, 15, 15, 3)
-        self.ob_im_bw = tf.placeholder(tf.float32, [n_step, height, width, channel]) 
+        n_agents, h, w, n_c = self.img_dims[0], self.img_dims[1], self.img_dims[2], self.img_dims[3]
+        self.ob_im_fw = tf.placeholder(tf.float32, [1, n_agents, h, w, n_c]) # img portion of obs (1, 15, 15, 3)
+        self.ob_im_bw = tf.placeholder(tf.float32, [n_step, n_agents, h, w, n_c]) 
         self.ob_vec_fw = tf.placeholder(tf.float32, [1, self.vec_dims]) # other state info to be passed into model other than img (e.g. finger prints)
         self.ob_vec_bw = tf.placeholder(tf.float32, [n_step, self.vec_dims])  
         # NEW -------------------------------------------------
@@ -128,9 +128,6 @@ class LstmPolicy(Policy):
         ob_im, ob_vec = obs[:,0], obs[:,1]
         ob_im = np.stack(ob_im, axis=0).astype(np.float32)
         ob_vec = np.stack(ob_vec, axis=0).astype(np.float32)
-        
-        if ob_vec.shape[1] == 0: # only the case in ia2c
-            ob_vec = np.empty(shape=(self.n_step, self.vec_dims), dtype=np.float32)
         
         ins = {self.ob_im_bw: ob_im,
                self.ob_vec_bw: ob_vec,
@@ -182,7 +179,12 @@ class LstmPolicy(Policy):
             naction = self.naction_bw if self.n_n else None
 
         # NEW ---------------------------------------------------------
-        h = conv_to_linear(x=ob_im, scope='conv', n_out=self.n_fc) # local state
+        h = []
+        for i in range(self.n_n): # each agent gets the local obs from its neighbours 
+            scope = '{}_conv_{}'.format(self.name, i)
+            h_i = conv_to_linear(x=ob_im[:,i], scope=scope, n_out=self.n_fc) 
+            h.append(h_i)
+        h = tf.concat(h, axis=1)
         h = fc(h, 'fc', self.n_fc)
         # NEW ---------------------------------------------------------
 
@@ -217,18 +219,22 @@ class FPPolicy(LstmPolicy):
             ob_vec = self.ob_vec_bw
             done = self.done_bw
             naction = self.naction_bw if self.n_n else None
-        
+        # NEW ----------------------------------------------------------------------
         # pass img obs through conv_2_linear and through an fc layer 
-        h_im = conv_to_linear(x=ob_im, scope='conv', n_out=self.n_fc) 
-        h_im = fc(h_im, 'fc', self.n_fc) 
+        h_im = []
+        for i in range(self.n_n): # each agent gets the local obs from its neighbours 
+            scope = '{}_conv_{}'.format(self.name, i)
+            h_i = conv_to_linear(x=ob_im[:,i], scope=scope, n_out=self.n_fc) 
+            h_im.append(h_i)
+        h_im = tf.concat(h_im, axis=1)
+        h_im = fc(h_im, 'fc', self.n_fc)
         
         # separately, pass finger print vector through fc layer (if agent has neighbours)
         if self.n_n:
-            h_fp = fc(ob_vec, 'fcp', self.n_fc)
-            h = tf.concat([h_im, h_fp], axis=1)
+            h = tf.concat([h_im, ob_vec], axis=1)
         else:
             h = h_im
-        
+        # NEW --------------------------------------------------------------------------
         h, new_states = lstm(h, done, self.states, 'lstm')
         pi = self._build_actor_head(h)
         v = self._build_critic_head(h, naction)

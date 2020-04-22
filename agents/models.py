@@ -117,7 +117,7 @@ class IA2C:
         if (max(self.n_a_ls) == min(self.n_a_ls)):
             # note for identical IA2C, n_s_ls may have varient dims
             self.identical_agent = True
-            self.n_s = n_s_ls[0] # dimmension of obs (15,15,3)
+            self.n_s = n_s_ls[0] # dimmension of obs (n_neighbours, 15,15,3)
             self.n_a = n_a_ls[0] # number of discrete actions
         else:
             self.n_s = max(self.n_s_ls) 
@@ -137,10 +137,9 @@ class IA2C:
         config = tf.ConfigProto(allow_soft_placement=True)
         config.gpu_options.allow_growth = True # tells TF to only use as much memory as needed
         config.log_device_placement = True # tells TF to log which devices (CPU, GPU, etc) are being used
-        self.sess = tf.Session(config=config)
-        # set_session(self.sess)
         # NEW (for TF-GPU) --------------------------------------------------------------------------- 
-
+        
+        self.sess = tf.Session(config=config)
         self.policy = self._init_policy() # build model policy
         self.saver = tf.train.Saver(max_to_keep=5)
         # init exp buffer and lr scheduler for training

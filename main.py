@@ -18,7 +18,6 @@ from utils import (Counter, Trainer, Tester, Evaluator,
                    init_dir, init_log, init_test_flag,
                    plot_evaluation, plot_train)
 
-
 def parse_args():
     default_base_dir = '/Users/tchu/Documents/rl_test/deeprl_dist/ia2c_grid_0.9'
     default_config_dir = './config/config_ia2c_grid.ini'
@@ -76,7 +75,7 @@ def init_agent(env, config, total_step, seed):
     elif env.agent == 'ma2c_nc': # Neurcomm
         return MA2C_NC(env.n_s_ls, env.n_a_ls, env.neighbor_mask, env.distance_mask, env.coop_gamma,
                        total_step, config, seed=seed)
-    elif env.agent == 'ma2c_cu': # Consensus
+    elif env.agent == 'ma2c_cu': # ConseNet
         return IA2C_CU(env.n_s_ls, env.n_a_ls, env.neighbor_mask, env.distance_mask, env.coop_gamma,
                        total_step, config, seed=seed)
     elif env.agent == 'ma2c_ic3': # CommNet
@@ -102,7 +101,8 @@ def train(args):
 
     # init environemnt
     env = init_env(config['ENV_CONFIG'])
-    logging.info('Task: %s, action dim: %r, agent dim: %d' % (env.scenario, env.n_a_ls, env.n_agent))
+    logging.info('Task: %s, action dim: %r, agent dim: %d' % (env.scenario+"_"+env.agent, 
+                                                              env.n_a_ls, env.n_agent))
 
     # init counter
     total_step = int(config.getfloat('TRAIN_CONFIG', 'total_step'))
